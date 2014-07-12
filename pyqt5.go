@@ -33,7 +33,7 @@ from PyQt5.QtCore import QCoreApplication
 from PyQt5.QtNetwork import QLocalServer
 import json
 
-app = QCoreApplication([])
+App = QCoreApplication([])
 
 _gopyqt5_signals = dict()
 
@@ -124,7 +124,7 @@ func RunString(code string) {
 }
 
 func Main() {
-	RunString(`app.exec_()`)
+	RunString(`App.exec_()`)
 }
 
 type _Message struct {

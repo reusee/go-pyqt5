@@ -23,7 +23,7 @@ Connect("foo", lambda a, b, c: [
 	print(a, b, c),
 	Emit('FOO', a, b, c)
 ])
-Connect("quit", lambda: app.quit())
+Connect("quit", lambda: App.quit())
 	`)
 
 	Main()

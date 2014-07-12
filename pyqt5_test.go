@@ -9,12 +9,12 @@ func TestBasic(t *testing.T) {
 	Init()
 	defer Finalize()
 
-	Emit("foo", 1, 2, 3)
-	Connect("FOO", func(a, b, c float64) {
-		if a != 1 || b != 2 || c != 3 {
+	Emit("foo", 1, 2, "你好")
+	Connect("FOO", func(a, b float64, c string) {
+		if a != 1 || b != 2 || c != "你好" {
 			t.Fail()
 		}
-		fmt.Printf("FOO %f %f %f\n", a, b, c)
+		fmt.Printf("FOO %f %f %s\n", a, b, c)
 		Emit("quit")
 	})
 

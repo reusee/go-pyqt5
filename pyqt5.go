@@ -46,8 +46,8 @@ def onNewConn():
 	socket = server.nextPendingConnection()
 	buf = bytearray()
 	def onReady():
-		for b in socket.readAll():
-			if b == '\x00':
+		for b in bytearray(socket.readAll()):
+			if b == 0:
 				data = json.loads(buf.decode('utf8'))
 				if data['Signal'] in _gopyqt5_signals:
 					for cb in _gopyqt5_signals[data['Signal']]:
@@ -57,7 +57,7 @@ def onNewConn():
 							cb()
 				buf.clear()
 			else:
-				buf.append(ord(b))
+				buf.append(b)
 	socket.readyRead.connect(onReady)
 server.newConnection.connect(onNewConn)
 

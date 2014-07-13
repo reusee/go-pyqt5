@@ -21,6 +21,7 @@ import (
 )
 
 var conn *net.UnixConn
+var connReady = make(chan bool)
 
 var cbs = make(map[string][]reflect.Value)
 
@@ -83,6 +84,7 @@ def Emit(signal, *args):
 	if err != nil {
 		log.Fatalf("DialUnix %v", err)
 	}
+	close(connReady)
 	go func() {
 		var buf []byte
 		c := make([]byte, 1)
@@ -133,6 +135,7 @@ type _Message struct {
 }
 
 func Emit(signal string, args ...interface{}) {
+	<-connReady
 	msg := _Message{
 		Signal: signal,
 		Args:   args,

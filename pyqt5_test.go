@@ -3,28 +3,33 @@ package pyqt5
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestBasic(t *testing.T) {
-	Init()
-	defer Finalize()
-
-	Emit("foo", 1, 2, "你好")
-	Connect("FOO", func(a, b float64, c string) {
+	qt, err := New()
+	if err != nil {
+		t.Fatalf("New %v", err)
+	}
+	defer qt.Close()
+	qt.Run(`
+Connect('foo', lambda a, b, c: [
+	print(a, b, c),
+	Emit('bar', a, b, c),
+])
+	`)
+	done := make(chan bool)
+	qt.Connect("bar", func(a, b float64, c string) {
 		if a != 1 || b != 2 || c != "你好" {
 			t.Fail()
 		}
-		fmt.Printf("FOO %f %f %s\n", a, b, c)
-		Emit("quit")
+		fmt.Printf("bar %f %f %s\n", a, b, c)
+		close(done)
 	})
-
-	RunString(`
-Connect("foo", lambda a, b, c: [
-	print(a, b, c),
-	Emit('FOO', a, b, c)
-])
-Connect("quit", lambda: App.quit())
-	`)
-
-	Main()
+	qt.Emit("foo", 1, 2, "你好")
+	select {
+	case <-done:
+	case <-time.After(time.Second * 3):
+		t.Fatal("no signal")
+	}
 }

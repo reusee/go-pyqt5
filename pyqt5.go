@@ -1,11 +1,5 @@
 package pyqt5
 
-/*
-#include <Python.h>
-#include <stdlib.h>
-#cgo pkg-config: python3
-*/
-import "C"
 import (
 	"bytes"
 	"encoding/json"
@@ -14,96 +8,69 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"time"
-	"unsafe"
 )
 
-var conn *net.UnixConn
-var connReady = make(chan bool)
-
-var cbs = make(map[string][]reflect.Value)
-
-func Init() {
+func init() {
 	rand.Seed(time.Now().UnixNano())
-	C.Py_Initialize()
-	runtime.LockOSThread()
+}
+
+type PyQt struct {
+	conn  net.Conn
+	ready chan bool
+	cbs   map[string][]reflect.Value
+}
+
+type _Message struct {
+	Signal string
+	Args   []interface{}
+}
+
+func New() (*PyQt, error) {
+	qt := &PyQt{
+		ready: make(chan bool),
+		cbs:   make(map[string][]reflect.Value),
+	}
+	qt.Connect("__exception__", func(desc string) {
+		log.Fatal(desc)
+	})
+
+	// start unix domain socket
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("%d", rand.Uint32()))
-	RunString(fmt.Sprintf(`
-from PyQt5.QtWidgets import QApplication
-from PyQt5.QtNetwork import QLocalServer
-import json
-
-App = QApplication([])
-
-_gopyqt5_signals = dict()
-
-server = QLocalServer()
-socket = None
-if not server.listen("%s"):
-	raise Exception("server listen error")
-def onNewConn():
-	global socket
-	socket = server.nextPendingConnection()
-	buf = bytearray()
-	def onReady():
-		for b in bytearray(socket.readAll()):
-			if b == 0:
-				data = json.loads(buf.decode('utf8'))
-				if data['Signal'] in _gopyqt5_signals:
-					for cb in _gopyqt5_signals[data['Signal']]:
-						if data['Args']:
-							cb(*data['Args'])
-						else:
-							cb()
-				buf.clear()
-			else:
-				buf.append(b)
-	socket.readyRead.connect(onReady)
-server.newConnection.connect(onNewConn)
-
-def Connect(signal, cb):
-	_gopyqt5_signals.setdefault(signal, [])
-	_gopyqt5_signals[signal].append(cb)
-
-def Emit(signal, *args):
-	buf = bytearray(json.dumps({
-		'Signal': signal,
-		'Args': args,
-	}).encode('utf8'))
-	buf.append(0)
-	socket.write(buf)
-
-	`, socketPath))
-
 	addr, err := net.ResolveUnixAddr("unix", socketPath)
 	if err != nil {
-		log.Fatalf("ResolveUnixAddr %v", err)
+		return nil, err
 	}
-	conn, err = net.DialUnix("unix", nil, addr)
+	ln, err := net.ListenUnix("unix", addr)
 	if err != nil {
-		log.Fatalf("DialUnix %v", err)
+		return nil, err
 	}
-	close(connReady)
 	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			log.Fatalf("Accept %v", err)
+		}
+		qt.conn = conn
+		close(qt.ready)
 		var buf []byte
 		c := make([]byte, 1)
 		for {
 			_, err := conn.Read(c)
 			if err != nil {
-				return
+				return //TODO python closed
 			}
 			if c[0] == '\x00' {
 				var msg _Message
 				json.NewDecoder(bytes.NewReader(buf)).Decode(&msg)
-				if len(cbs[msg.Signal]) > 0 {
+				if len(qt.cbs[msg.Signal]) > 0 {
 					var values []reflect.Value
 					for _, arg := range msg.Args {
 						values = append(values, reflect.ValueOf(arg))
 					}
-					for _, cb := range cbs[msg.Signal] {
+					for _, cb := range qt.cbs[msg.Signal] {
 						cb.Call(values)
 					}
 				}
@@ -114,31 +81,64 @@ def Emit(signal, *args):
 		}
 	}()
 
+	// start python
+	cmd := exec.Command("python", "-c", `
+from PyQt5.QtWidgets import QApplication
+from PyQt5.QtNetwork import QLocalSocket
+import sys
+import json
+import traceback
+App = QApplication([])
+def run(code):
+	c = compile(code, '<string>', 'exec')
+	exec(c)
+_gopyqt5_signals = {
+	'__run__': [run],
+}
+socket = QLocalSocket()
+socket.connectToServer(sys.argv[1])
+buf = bytearray()
+def onReady():
+	for b in bytearray(socket.readAll()):
+		if b == 0:
+			data = json.loads(buf.decode('utf8'))
+			if data['Signal'] in _gopyqt5_signals:
+				for cb in _gopyqt5_signals[data['Signal']]:
+					if data['Args']:
+						cb(*data['Args'])
+					else:
+						cb()
+			buf.clear()
+		else:
+			buf.append(b)
+socket.readyRead.connect(onReady)
+socket.disconnected.connect(lambda: App.quit())
+def Connect(signal, cb):
+	_gopyqt5_signals.setdefault(signal, [])
+	_gopyqt5_signals[signal].append(cb)
+def Emit(signal, *args):
+	buf = bytearray(json.dumps({
+		'Signal': signal,
+		'Args': args,
+	}).encode('utf8'))
+	buf.append(0)
+	socket.write(buf)
+def excepthook(t, v, tb):
+	Emit('__exception__', '%s %s\n%s' % (str(t), str(v), ''.join(traceback.format_tb(tb))))
+sys.excepthook = excepthook
+App.exec_()
+	`, socketPath)
+	cmd.Start()
+
+	return qt, nil
 }
 
-func Finalize() {
-	conn.Close()
-	RunString(`server.close()`)
-	C.Py_Finalize()
+func (qt *PyQt) Close() {
+	qt.conn.Close()
 }
 
-func RunString(code string) {
-	cCode := C.CString(code)
-	C.PyRun_SimpleStringFlags(cCode, nil)
-	C.free(unsafe.Pointer(cCode))
-}
-
-func Main() {
-	RunString(`App.exec_()`)
-}
-
-type _Message struct {
-	Signal string
-	Args   []interface{}
-}
-
-func Emit(signal string, args ...interface{}) {
-	<-connReady
+func (qt *PyQt) Emit(signal string, args ...interface{}) {
+	<-qt.ready
 	msg := _Message{
 		Signal: signal,
 		Args:   args,
@@ -146,9 +146,13 @@ func Emit(signal string, args ...interface{}) {
 	buf := new(bytes.Buffer)
 	json.NewEncoder(buf).Encode(msg)
 	buf.WriteByte(byte(0))
-	conn.Write(buf.Bytes())
+	qt.conn.Write(buf.Bytes())
 }
 
-func Connect(signal string, cb interface{}) {
-	cbs[signal] = append(cbs[signal], reflect.ValueOf(cb))
+func (qt *PyQt) Connect(signal string, cb interface{}) {
+	qt.cbs[signal] = append(qt.cbs[signal], reflect.ValueOf(cb))
+}
+
+func (qt *PyQt) Run(code string) {
+	qt.Emit("__run__", code)
 }

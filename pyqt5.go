@@ -105,6 +105,7 @@ def Emit(signal, *args):
 						cb.Call(values)
 					}
 				}
+				buf = buf[0:0]
 			} else {
 				buf = append(buf, c[0])
 			}

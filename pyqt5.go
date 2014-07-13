@@ -60,7 +60,8 @@ func New() (*PyQt, error) {
 		for {
 			_, err := conn.Read(c)
 			if err != nil {
-				return //TODO python closed
+				qt.Close()
+				return
 			}
 			if c[0] == '\x00' {
 				var msg _Message

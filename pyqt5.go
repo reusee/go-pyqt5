@@ -30,11 +30,11 @@ func Init() {
 	C.Py_Initialize()
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("%d", rand.Uint32()))
 	RunString(fmt.Sprintf(`
-from PyQt5.QtCore import QCoreApplication
+from PyQt5.QtWidgets import QApplication
 from PyQt5.QtNetwork import QLocalServer
 import json
 
-App = QCoreApplication([])
+App = QApplication([])
 
 _gopyqt5_signals = dict()
 

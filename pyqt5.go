@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"time"
 	"unsafe"
 )
@@ -28,6 +29,7 @@ var cbs = make(map[string][]reflect.Value)
 func Init() {
 	rand.Seed(time.Now().UnixNano())
 	C.Py_Initialize()
+	runtime.LockOSThread()
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("%d", rand.Uint32()))
 	RunString(fmt.Sprintf(`
 from PyQt5.QtWidgets import QApplication

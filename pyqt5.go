@@ -3,7 +3,7 @@ package pyqt5
 /*
 #include <Python.h>
 #include <stdlib.h>
-#cgo pkg-config: python3
+#cgo pkg-config: python2
 */
 import "C"
 import (
@@ -47,20 +47,20 @@ if not server.listen("%s"):
 def onNewConn():
 	global socket
 	socket = server.nextPendingConnection()
-	buf = bytearray()
+	buf = [bytearray()]
 	def onReady():
 		for b in bytearray(socket.readAll()):
 			if b == 0:
-				data = json.loads(buf.decode('utf8'))
+				data = json.loads(buf[0].decode('utf8'))
 				if data['Signal'] in _gopyqt5_signals:
 					for cb in _gopyqt5_signals[data['Signal']]:
 						if data['Args']:
 							cb(*data['Args'])
 						else:
 							cb()
-				buf.clear()
+				buf[0] = bytearray()
 			else:
-				buf.append(b)
+				buf[0].append(b)
 	socket.readyRead.connect(onReady)
 server.newConnection.connect(onNewConn)
 

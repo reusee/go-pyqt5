@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"time"
 )
 
@@ -19,9 +21,11 @@ func init() {
 }
 
 type PyQt struct {
-	conn  net.Conn
-	ready chan bool
-	cbs   map[string][]reflect.Value
+	conn      net.Conn
+	ready     chan bool
+	cbs       map[string][]reflect.Value
+	closeCbs  []func()
+	closeOnce sync.Once
 }
 
 type _Message struct {
@@ -29,7 +33,7 @@ type _Message struct {
 	Args   []interface{}
 }
 
-func New() (*PyQt, error) {
+func New(initCode string) (*PyQt, error) {
 	qt := &PyQt{
 		ready: make(chan bool),
 		cbs:   make(map[string][]reflect.Value),
@@ -91,8 +95,7 @@ import json
 import traceback
 App = QApplication([])
 def run(code):
-	c = compile(code, '<string>', 'exec')
-	exec(c)
+	exec(code)
 _gopyqt5_signals = {
 	'__run__': [run],
 }
@@ -124,18 +127,39 @@ def Emit(signal, *args):
 	}).encode('utf8'))
 	buf.append(0)
 	socket.write(buf)
+exec(sys.argv[2].strip())
 def excepthook(t, v, tb):
 	Emit('__exception__', '%s %s\n%s' % (str(t), str(v), ''.join(traceback.format_tb(tb))))
 sys.excepthook = excepthook
 App.exec_()
-	`, socketPath)
+socket.disconnect()
+	`, socketPath, initCode)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	go io.Copy(os.Stdout, stdout)
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+	go io.Copy(os.Stdout, stderr)
 	cmd.Start()
 
 	return qt, nil
 }
 
 func (qt *PyQt) Close() {
-	qt.conn.Close()
+	qt.closeOnce.Do(func() {
+		qt.conn.Close()
+		for _, cb := range qt.closeCbs {
+			cb()
+		}
+	})
+}
+
+func (qt *PyQt) OnClose(cb func()) {
+	qt.closeCbs = append(qt.closeCbs, cb)
 }
 
 func (qt *PyQt) Emit(signal string, args ...interface{}) {

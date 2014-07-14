@@ -7,17 +7,16 @@ import (
 )
 
 func TestBasic(t *testing.T) {
-	qt, err := New()
-	if err != nil {
-		t.Fatalf("New %v", err)
-	}
-	defer qt.Close()
-	qt.Run(`
+	qt, err := New(`
 Connect('foo', lambda a, b, c: [
 	print(a, b, c),
 	Emit('bar', a, b, c),
 ])
 	`)
+	if err != nil {
+		t.Fatalf("New %v", err)
+	}
+	defer qt.Close()
 	done := make(chan bool)
 	qt.Connect("bar", func(a, b float64, c string) {
 		if a != 1 || b != 2 || c != "你好" {
